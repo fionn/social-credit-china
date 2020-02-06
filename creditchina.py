@@ -1,48 +1,70 @@
 #!/usr/bin/env python3
+"""Get the social credit list"""
 
-from selenium import webdriver # type: ignore
-from selenium.webdriver.support.wait import WebDriverWait # type: ignore
+from dataclasses import dataclass
+from typing import List, Dict, Generator
 
-URL = "https://www.creditchina.gov.cn/gerenxinyong/personsearch/index.html"
+import requests
 
-#"#page-500"
+@dataclass
+class Person:
+    """
+    "xm": "姓名",
+    "lrsj": "列入时间",
+    "tmzjhm": "证件号码",
+    "lrbm": "列入部门"
+    """
+
+    xm: str # pylint: disable=invalid-name
+    lrsj: str
+    tmzjhm: str
+    lrbm: str
 
 class CreditChina:
-    """CC wrapper"""
+    """Just a getter"""
 
     def __init__(self) -> None:
-        self.url = "https://www.creditchina.gov.cn/gerenxinyong/personsearch/"
-        self.driver = self._make_driver()
+        self.base_url = "https://public.creditchina.gov.cn"
+        self.endpoint = "/private-api/catalogSearchPerson"
+        self.url = self.base_url + self.endpoint
+        self.session = requests.Session()
+        self.session.headers.update({"User-Agent": "curl/7.67.0"})
 
-    @staticmethod
-    def _make_driver() -> webdriver.Firefox:
-        profile = webdriver.FirefoxProfile()
-        profile.set_preference("http.response.timeout", 30)
-        profile.set_preference("dom.max_script_run_time", 30)
-        driver = webdriver.Firefox(firefox_profile=profile)
-        driver.set_page_load_timeout(30)
-        driver.implicitly_wait(30)
-        return driver
+    def _get(self, payload: dict) -> requests.models.Response:
+        """HTTP GET"""
+        response = self.session.get(self.url, params=payload)
+        response.raise_for_status()
+        return response
 
-    def get(self, payload: str) -> None:
-        """Getter"""
-        response = self.driver.get(payload)
-        wait = WebDriverWait(self.driver, timeout=30)
-        wait.until(lambda x: x.find_element_by_id("gsr"))
-        print(type(response))
-        print(response)
+    def get_human_data_by_page(self, page: int, size: int) -> List[Dict[str, str]]:
+        """Returns a list of people data"""
+        payload = {"searchState": 1,
+                   "page": page,
+                   "pageSize": size,
+                   "tableName": "credit_zgf_zrr_sxbzxr_jb",
+                   "scenes": "defaultscenario"}
+        if page * size > 10000:
+            raise RuntimeError("Requested {} which exceeds capacity"
+                               .format(page * size))
+        response_json = self._get(payload).json()
+        if response_json["message"] != "成功":
+            raise RuntimeError("TODO: standard error message")
+        return response_json["data"]["list"]
+
+    def yield_humans(self) -> Generator[Person, None, None]:
+        """Here's a person"""
+        for i in range(1, 1000):
+            humans = self.get_human_data_by_page(page=i, size=2)
+            for human in humans:
+                yield Person(**human)
 
 def main() -> None:
     """Entry point"""
-    ccn = CreditChina()
 
-    payload = {"tablename": "credit_zgf_zrr_sxbzxr",
-               "gsName": "%E5%A4%B1%E4%BF%A1%E8%A2%AB%E6%89%A7%E8%A1%8C%E4%BA%BA%E5%90%8D%E5%8D%95%E6%9F%A5%E8%AF%A2"}
+    cc = CreditChina() # pylint: disable=invalid-name
 
-    payload_str = f"?tablename={payload['tablename']}&gsName={payload['gsName']}"
-
-    ccn.get(ccn.url + payload_str)
-    ccn.driver.close()
+    for person in cc.yield_humans():
+        print(person)
 
 if __name__ == "__main__":
     main()
