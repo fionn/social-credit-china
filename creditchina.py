@@ -7,6 +7,10 @@ from typing import List, Dict, Generator
 import requests
 import gb2260 # type: ignore
 
+def truncate_int(year: int) -> int:
+    """E.g. 200506 -> 2005"""
+    return int(str(year)[:4])
+
 class CCError(Exception):
     """Exception class for CreditChina errors"""
 
@@ -40,6 +44,13 @@ class Person:
         try:
             return gb2260.get(tmzjhm[:6])
         except ValueError:
+            years = [year for year in gb2260.data.data if year is not None]
+            years.sort(key=truncate_int, reverse=True)
+            for year in years:
+                try:
+                    return gb2260.get(tmzjhm[:6], year)
+                except ValueError:
+                    continue
             return None
 
 class CreditChina:
